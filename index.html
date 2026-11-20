@@ -77,16 +77,29 @@
     .stat-box {
       padding: 4px;
     }
+    .stat-course-title {
+      font-size: 11px;
+      font-weight: bold;
+      color: var(--wood-dark);
+      background: #efe6d5;
+      border-radius: 6px;
+      padding: 3px 6px;
+      margin-bottom: 6px;
+    }
     .stat-label {
       font-size: 11px;
       color: var(--sub);
       font-weight: bold;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
     .stat-val {
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 800;
-      color: var(--wood-dark);
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    .stat-val:last-child {
+      margin-bottom: 0;
     }
     .stat-note {
       grid-column: 1 / -1;
@@ -299,14 +312,16 @@
       </p>
       <div class="stats-banner" id="stats-banner">
         <div class="stat-box">
-          <div class="stat-label" id="stat-plays-label">挑戦者数</div>
-          <div class="stat-val" id="stat-plays">0 人</div>
+          <div class="stat-course-title">⚡ 10問コース</div>
+          <div class="stat-label">挑戦者数 / 平均点</div>
+          <div class="stat-val"><span id="stat-plays-10">0 人</span> / <span id="stat-avg-10">-- 点</span></div>
         </div>
         <div class="stat-box">
-          <div class="stat-label" id="stat-avg-label">みんなの平均点</div>
-          <div class="stat-val" id="stat-avg">-- 点</div>
+          <div class="stat-course-title">🔀 全100問コース</div>
+          <div class="stat-label">挑戦者数 / 平均点</div>
+          <div class="stat-val"><span id="stat-plays-100">0 人</span> / <span id="stat-avg-100">-- 点</span></div>
         </div>
-        <div class="stat-note" id="stat-note">※ 100点満点換算の平均スコアを表示</div>
+        <div class="stat-note" id="stat-note">※ コース別の挑戦者数と平均スコアを表示</div>
       </div>
       <div class="mode-grid">
         <button class="btn btn-primary" onclick="startQuiz(10, true)">⚡ 10問ランダムチャレンジに挑戦する（合格ライン：90点以上）</button>
@@ -458,26 +473,33 @@
     }
 
     // ★ 全挑戦者のリアルタイム集計を行う場合は、Google Apps Script等のWebアプリURLをここに設定
-    const STATS_API_URL = "https://script.google.com/macros/library/d/1Cq0_KkhwOcwF-kbLq5cVv64e2ibORFywZhvzEn2wqXK7i7XuhQmsl4e6/3";
-    const STORAGE_KEY = "shogi_quiz_100_stats_v1";
+    const STATS_API_URL = "https://script.google.com/macros/s/AKfycby65bvx03Ur3ycYOlDwJqxV4tirU6HMUuRFk4ZIUrLranr7HJGiELE_q_YmG6hePILM/exec";
+    const STORAGE_KEY = "shogi_quiz_100_stats_v2";
 
     function loadLocalStats() {
+      const fallback = {
+        c10: { plays: 0, totalRate: 0 },
+        c100: { plays: 0, totalRate: 0 }
+      };
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return { plays: 0, totalRate: 0, totalScore: 0, totalQuestions: 0 };
-        return JSON.parse(raw);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        return {
+          c10: parsed.c10 || { plays: 0, totalRate: 0 },
+          c100: parsed.c100 || { plays: 0, totalRate: 0 }
+        };
       } catch (e) {
-        return { plays: 0, totalRate: 0, totalScore: 0, totalQuestions: 0 };
+        return fallback;
       }
     }
 
     function saveLocalStats(scoreVal, totalVal, rateVal) {
       try {
         const st = loadLocalStats();
-        st.plays += 1;
-        st.totalRate += rateVal;
-        st.totalScore += scoreVal;
-        st.totalQuestions += totalVal;
+        const key = (totalVal === 100) ? 'c100' : 'c10';
+        st[key].plays += 1;
+        st[key].totalRate += rateVal;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
         return st;
       } catch (e) {
@@ -485,25 +507,29 @@
       }
     }
 
+    function updateCourseUI(plays10, avg10, plays100, avg100) {
+      document.getElementById('stat-plays-10').textContent = `${plays10.toLocaleString()} 人`;
+      document.getElementById('stat-avg-10').textContent = plays10 > 0 ? `${Math.round(avg10)} 点` : '-- 点';
+      document.getElementById('stat-plays-100').textContent = `${plays100.toLocaleString()} 人`;
+      document.getElementById('stat-avg-100').textContent = plays100 > 0 ? `${Math.round(avg100)} 点` : '-- 点';
+    }
+
     async function refreshStatsDisplay() {
-      const playsEl = document.getElementById('stat-plays');
-      const avgEl = document.getElementById('stat-avg');
-      const playsLabel = document.getElementById('stat-plays-label');
-      const avgLabel = document.getElementById('stat-avg-label');
       const noteEl = document.getElementById('stat-note');
 
-      playsLabel.textContent = '挑戦者数';
-      avgLabel.textContent = 'みんなの平均点';
-
       if (STATS_API_URL) {
-        noteEl.textContent = '※ Xからの全挑戦者のリアルタイム集計（100点満点換算）';
+        noteEl.textContent = '※ Xからの全挑戦者のコース別リアルタイム集計（100点満点換算）';
         try {
           const res = await fetch(STATS_API_URL);
           const data = await res.json();
-          const count = Number(data.plays || 0);
-          const avgRate = count > 0 ? Math.round(Number(data.avgRate || 0)) : null;
-          playsEl.textContent = `${count.toLocaleString()} 人`;
-          avgEl.textContent = avgRate !== null ? `${avgRate} 点` : '-- 点';
+          const c10 = data.c10 || { plays: 0, avgRate: 0 };
+          const c100 = data.c100 || { plays: 0, avgRate: 0 };
+          updateCourseUI(
+            Number(c10.plays || 0),
+            Number(c10.avgRate || 0),
+            Number(c100.plays || 0),
+            Number(c100.avgRate || 0)
+          );
           return;
         } catch (e) {
           noteEl.textContent = '※ 集計サーバー未接続のため端末内記録を表示中';
@@ -511,13 +537,9 @@
       }
 
       const local = loadLocalStats();
-      playsEl.textContent = `${local.plays.toLocaleString()} 人`;
-      if (local.plays > 0) {
-        const avg = Math.round(local.totalRate / local.plays);
-        avgEl.textContent = `${avg} 点`;
-      } else {
-        avgEl.textContent = '-- 点';
-      }
+      const avg10 = local.c10.plays > 0 ? (local.c10.totalRate / local.c10.plays) : 0;
+      const avg100 = local.c100.plays > 0 ? (local.c100.totalRate / local.c100.plays) : 0;
+      updateCourseUI(local.c10.plays, avg10, local.c100.plays, avg100);
     }
 
     async function recordResult(scoreVal, totalVal, rateVal) {
@@ -527,7 +549,12 @@
           await fetch(STATS_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ score: scoreVal, total: totalVal, rate: rateVal })
+            body: JSON.stringify({
+              course: (totalVal === 100) ? '100問コース' : '10問コース',
+              score: scoreVal,
+              total: totalVal,
+              rate: rateVal
+            })
           });
         } catch (e) {
           // 通信失敗時もローカル記録は保持
@@ -580,10 +607,7 @@
       const statusText = isPassed ? '【合格💮】' : '【不合格】';
       const rank = getRank(rate);
       const url = window.location.href.startsWith('http') ? window.location.href : '';
-      const text = `【1級将棋指士試験 学科問題（${total}問コース）】${statusText}
-${total}問中 ${score}問正解（${rate}点 / 合格基準9割以上）でした！
-${isPassed ? '付与資格：' + rank : '判定：' + rank}
-#1級将棋指士試験 #将棋クイズ #将棋`;
+      const text = `【1級将棋指士試験 学科問題（${total}問コース）】${statusText}\n${total}問中 ${score}問正解（${rate}点 / 合格基準9割以上）でした！\n${isPassed ? '付与資格：' + rank : '判定：' + rank}\n#1級将棋指士試験 #将棋クイズ #将棋`;
       const shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}${url ? '&url=' + encodeURIComponent(url) : ''}`;
       window.open(shareUrl, '_blank', 'noopener,noreferrer');
     }
